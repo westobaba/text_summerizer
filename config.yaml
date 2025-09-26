@@ -1,0 +1,8 @@
+huggingface_model: "westobaba-22/pegasus-samsum-finetuned"
+
+summarization:
+  max_length: 128
+  min_length: 32
+  num_beams: 8
+  length_penalty: 0.8
+  batch_size: 16
