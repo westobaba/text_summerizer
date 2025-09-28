@@ -22,7 +22,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ✅ Correct way to configure AWS creds
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -30,7 +29,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ✅ ECR login now works without extra inputs
       - name: Log in to AWS ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -46,34 +44,36 @@ jobs:
           docker push ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ github.sha }}
 
   # ----------------------------
-  # 2. Deploy to EC2
+  # 2. Deploy on EC2 (self-hosted runner)
   # ----------------------------
   deploy-to-ec2:
-    name: Deploy to EC2
+    name: Deploy on EC2 (Self-hosted)
     needs: build-and-push
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production
     steps:
-      - name: SSH and deploy on EC2
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            # Log in to ECR on the EC2 instance
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin ${{ secrets.AWS_ECR_LOGIN_URI }}
-            
-            # Pull the latest image
-            docker pull ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-            
-            # Stop and remove old container if exists
-            docker stop text-summarizer-app || true
-            docker rm text-summarizer-app || true
-            
-            # Run the new container
-            docker run -d \
-              --name text-summarizer-app \
-              -p 80:8000 \
-              ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin ${{ secrets.AWS_ECR_LOGIN_URI }}
+
+      - name: Pull and run container
+        run: |
+          docker pull ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+          
+          # Stop and remove old container if it exists
+          docker stop text-summarizer-app || true
+          docker rm text-summarizer-app || true
+          
+          # Run new container
+          docker run -d \
+            --name text-summarizer-app \
+            -p 80:8000 \
+            ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
